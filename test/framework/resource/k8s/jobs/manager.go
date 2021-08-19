@@ -16,18 +16,22 @@ package jobs
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/aws/amazon-vpc-resource-controller-k8s/test/framework/utils"
 
 	batchV1 "k8s.io/api/batch/v1"
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 type Manager interface {
 	CreateAndWaitForJobToComplete(ctx context.Context, jobs *batchV1.Job) (*batchV1.Job, error)
+	CreateJobAndWaitForJobToRun(ctx context.Context, jobs *batchV1.Job) (*batchV1.Job, error)
 	DeleteAndWaitTillJobIsDeleted(ctx context.Context, jobs *batchV1.Job) error
 }
 
@@ -37,6 +41,44 @@ func NewManager(k8sClient client.Client) Manager {
 
 type defaultManager struct {
 	k8sClient client.Client
+}
+
+func (m *defaultManager) CreateJobAndWaitForJobToRun(ctx context.Context,
+	jobs *batchV1.Job) (*batchV1.Job, error) {
+	err := m.k8sClient.Create(ctx, jobs)
+	if err != nil {
+		return nil, err
+	}
+
+	// Wait till the cache is refreshed
+	time.Sleep(utils.PollIntervalShort)
+
+	observedJob := &batchV1.Job{}
+	return observedJob, wait.PollImmediateUntil(utils.PollIntervalShort, func() (bool, error) {
+		podList := &v1.PodList{}
+		err = m.k8sClient.List(ctx, podList, &client.ListOptions{
+			LabelSelector: labels.SelectorFromSet(jobs.Spec.Template.Labels),
+		})
+		if err != nil {
+			return false, err
+		}
+		if err := m.k8sClient.Get(ctx, utils.NamespacedName(jobs), observedJob); err != nil {
+			return false, err
+		}
+		if observedJob.Status.Succeeded > 0 || observedJob.Status.Failed > 0 {
+			return false, fmt.Errorf("some jobs has either"+
+				" succeeded or failed :%v", observedJob.Status)
+		} else if observedJob.Status.Active > 0 {
+			var count int
+			for _, pod := range podList.Items {
+				if pod.Status.Phase == v1.PodRunning && strings.Contains(pod.Name, jobs.Name) {
+					count++
+				}
+			}
+			return count == int(*jobs.Spec.Parallelism), nil
+		}
+		return false, nil
+	}, ctx.Done())
 }
 
 func (m *defaultManager) CreateAndWaitForJobToComplete(ctx context.Context,
@@ -55,6 +97,7 @@ func (m *defaultManager) CreateAndWaitForJobToComplete(ctx context.Context,
 		if err := m.k8sClient.Get(ctx, utils.NamespacedName(jobs), observedJob); err != nil {
 			return false, err
 		}
+		// Error out if at least one job fails, but wait till all jobs have completed
 		if observedJob.Status.Failed > 0 {
 			return false, fmt.Errorf("failed to execute job :%v", observedJob.Status)
 		} else if observedJob.Status.Succeeded == (*jobs.Spec.Parallelism) {
@@ -70,7 +113,7 @@ func (m *defaultManager) DeleteAndWaitTillJobIsDeleted(ctx context.Context, job 
 		return err
 	}
 	observedJob := &batchV1.Job{}
-	return wait.PollImmediateUntil(utils.PollIntervalShort, func() (bool, error) {
+	err = wait.PollImmediateUntil(utils.PollIntervalShort, func() (bool, error) {
 		if err := m.k8sClient.Get(ctx, utils.NamespacedName(job), observedJob); err != nil {
 			if errors.IsNotFound(err) {
 				return true, nil
@@ -79,4 +122,22 @@ func (m *defaultManager) DeleteAndWaitTillJobIsDeleted(ctx context.Context, job 
 		}
 		return false, nil
 	}, ctx.Done())
+	if err != nil {
+		return err
+	}
+	jobPods := &v1.PodList{}
+	err = m.k8sClient.List(ctx, jobPods, &client.ListOptions{
+		LabelSelector: labels.SelectorFromSet(job.ObjectMeta.Labels),
+		Namespace:     v1.NamespaceAll,
+	})
+	if err != nil {
+		return err
+	}
+	for _, pod := range jobPods.Items {
+		err = m.k8sClient.Delete(ctx, &pod)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }

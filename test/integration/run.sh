@@ -34,6 +34,7 @@ kubectl set env daemonset aws-node -n kube-system ENABLE_POD_ENI=true
 echo "Starting the ginkgo test suite" 
 
 (cd $SCRIPT_DIR/perpodsg && CGO_ENABLED=0 GOOS=$OS_OVERRIDE ginkgo -v -timeout 15m -- -cluster-kubeconfig=$KUBE_CONFIG_PATH -cluster-name=$CLUSTER_NAME --aws-region=$REGION --aws-vpc-id $VPC_ID)
+(cd $SCRIPT_DIR/webhook && CGO_ENABLED=0 GOOS=$OS_OVERRIDE ginkgo -v -timeout 15m -- -cluster-kubeconfig=$KUBE_CONFIG_PATH -cluster-name=$CLUSTER_NAME --aws-region=$REGION --aws-vpc-id $VPC_ID)
 
 #Tear down local resources
 echo "Detaching the IAM Policy from Cluster Service Role"

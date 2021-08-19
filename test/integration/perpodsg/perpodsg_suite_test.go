@@ -24,6 +24,7 @@ import (
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
+	v1 "k8s.io/api/core/v1"
 )
 
 var frameWork *framework.Framework
@@ -32,6 +33,7 @@ var securityGroupID1 string
 var securityGroupID2 string
 var ctx context.Context
 var err error
+var nodeList *v1.NodeList
 
 func TestPerPodGG(t *testing.T) {
 	RegisterFailHandler(Fail)
@@ -39,14 +41,15 @@ func TestPerPodGG(t *testing.T) {
 }
 
 var _ = BeforeSuite(func() {
+	By("creating a framework")
 	frameWork = framework.New(framework.GlobalOptions)
 	ctx = context.Background()
 	verify = verifier.NewPodVerification(frameWork, ctx)
 
-	securityGroupID1, err = frameWork.EC2Manager.CreateSecurityGroup(utils.ResourceNamePrefix + "sg-1")
-	Expect(err).ToNot(HaveOccurred())
+	securityGroupID1 = reCreateSGIfAlreadyExists(utils.ResourceNamePrefix + "sg-1")
+	securityGroupID2 = reCreateSGIfAlreadyExists(utils.ResourceNamePrefix + "sg-2")
 
-	securityGroupID2, err = frameWork.EC2Manager.CreateSecurityGroup(utils.ResourceNamePrefix + "sg-2")
+	nodeList, err = frameWork.NodeManager.GetNodes()
 	Expect(err).ToNot(HaveOccurred())
 })
 
@@ -60,3 +63,17 @@ var _ = AfterSuite(func() {
 	frameWork.EC2Manager.DeleteSecurityGroup(securityGroupID2)
 	Expect(err).ToNot(HaveOccurred())
 })
+
+func reCreateSGIfAlreadyExists(securityGroupName string) string {
+	groupID, err := frameWork.EC2Manager.GetSecurityGroupID(securityGroupName)
+	if groupID != "" {
+		By("deleting the older security group" + groupID)
+		err := frameWork.EC2Manager.DeleteSecurityGroup(groupID)
+		Expect(err).ToNot(HaveOccurred())
+	}
+	By("creating a new security group with name " + securityGroupName)
+	groupID, err = frameWork.EC2Manager.CreateSecurityGroup(securityGroupName)
+	Expect(err).ToNot(HaveOccurred())
+
+	return groupID
+}

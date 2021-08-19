@@ -47,6 +47,8 @@ type PodReconciler struct {
 // if the resource is supported by the controller.
 func (r *PodReconciler) Reconcile(request custom.Request) (ctrl.Result, error) {
 	var isDeleteEvent bool
+	var hasPodCompleted bool
+
 	var pod *v1.Pod
 
 	if request.DeletedObject != nil {
@@ -68,9 +70,14 @@ func (r *PodReconciler) Reconcile(request custom.Request) (ctrl.Result, error) {
 		pod = obj.(*v1.Pod)
 	}
 
+	// If Pod is Completed, the networking for the Pod should be removed
+	// given the container will not be restarted again
+	hasPodCompleted = pod.Status.Phase == v1.PodSucceeded ||
+		pod.Status.Phase == v1.PodFailed
+
 	logger := r.Log.WithValues("UID", pod.UID, "pod", request.NamespacedName,
 		"node", pod.Spec.NodeName)
-
+	
 	// Verify the node is managed by the controller and the node is ready to handle
 	// incoming requests
 	node, managed := r.NodeManager.GetNode(pod.Spec.NodeName)
@@ -95,7 +102,7 @@ func (r *PodReconciler) Reconcile(request custom.Request) (ctrl.Result, error) {
 
 		var err error
 		var result ctrl.Result
-		if isDeleteEvent {
+		if isDeleteEvent || hasPodCompleted {
 			result, err = resourceHandler.HandleDelete(pod)
 		} else {
 			result, err = resourceHandler.HandleCreate(int(totalCount), pod)
@@ -104,7 +111,8 @@ func (r *PodReconciler) Reconcile(request custom.Request) (ctrl.Result, error) {
 			return result, err
 		}
 		logger.V(1).Info("handled resource without error",
-			"resource", resourceName, "is delete event", isDeleteEvent)
+			"resource", resourceName, "is delete event", isDeleteEvent,
+			"has completed pod", hasPodCompleted)
 	}
 
 	return ctrl.Result{}, nil
