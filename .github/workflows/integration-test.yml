@@ -3,17 +3,19 @@ on:
   push:
     branches:
       - master
+      - test-actions
   pull_request:
     types: [unlabeled, opened, synchronize, reopened]
     branches:
       - master
+      - test-actions
       
 jobs:
   pre-echo:
     runs-on: ubuntu-latest
     steps:
       - name: Pre-echo-step
-        run: echo 'Starting job'
+        run: echo 'Starting the job '
     
   labeler:
     if: | # Add/Re-Add testing-disabled anytime there's a commit or PR is opened
