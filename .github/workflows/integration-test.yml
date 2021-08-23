@@ -3,12 +3,12 @@ on:
   push:
     branches:
       - master
-      - test-actions
+      - action-test
   pull_request:
     types: [unlabeled, opened, synchronize, reopened]
     branches:
       - master
-      - test-actions
+      - action-test
       
 jobs:
   pre-echo:
