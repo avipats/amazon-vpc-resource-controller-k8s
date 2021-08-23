@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Pre-echo-step
-        run: echo 'Starting job'
+        run: echo 'Starting the job'
     
   labeler:
     if: | # Add/Re-Add testing-disabled anytime there's a commit or PR is opened
